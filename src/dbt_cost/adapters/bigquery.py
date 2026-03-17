@@ -18,7 +18,7 @@ class BigQueryAdapter(CostAdapter):
         job_config = bigquery.QueryJobConfig(dry_run=True, use_legacy_sql=False)
         job_config.default_dataset = bigquery.DatasetReference(project, dataset)
         query_job = self.client.query(sql, job_config=job_config)
-        return query_job.total_bytes_processed
+        return int(query_job.total_bytes_processed)
 
     def adapter_type(self) -> str:
         return "bigquery"
