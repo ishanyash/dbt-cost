@@ -7,4 +7,26 @@ build/
 .mypy_cache/
 .ruff_cache/
 *.egg
+
+# Local docs (specs, plans)
+docs/
+
+# Secrets and credentials
 .env
+.env.*
+*.json
+!tests/fixtures/*.json
+credentials*.json
+*-key.json
+*-credentials.json
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code
+.claude/
