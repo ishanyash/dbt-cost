@@ -36,5 +36,16 @@ class MockAdapter(CostAdapter):
 
 
 @pytest.fixture
+def modified_manifest_path() -> Path:
+    return Path(__file__).parent / "fixtures" / "small_manifest_modified.json"
+
+
+@pytest.fixture
+def modified_graph(modified_manifest_path: Path):
+    from dbt_lens.core.manifest import load_manifest
+    return load_manifest(modified_manifest_path)
+
+
+@pytest.fixture
 def mock_adapter() -> MockAdapter:
     return MockAdapter()

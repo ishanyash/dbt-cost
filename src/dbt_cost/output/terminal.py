@@ -5,6 +5,7 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn
 from rich.table import Table
 
 from dbt_cost.core.calculator import bytes_to_cost, format_bytes
+from dbt_cost.core.diff_engine import DiffResult
 
 console = Console()
 
@@ -108,6 +109,69 @@ def render_report(
     if skipped_models > 0:
         msg = f"{skipped_models} models skipped (no compiled SQL \u2014 run 'dbt compile')"
         console.print(f"  [yellow]\u26a0 {msg}[/yellow]")
+    console.print()
+
+
+def render_diff_table(
+    result: DiffResult,
+    price_per_tb: float,
+    include_unchanged: bool = False,
+) -> None:
+    models = result.models
+    if not models:
+        console.print("\n  [bold]No model changes detected.[/bold]\n")
+        return
+
+    console.print("\n  [bold]Cost Diff[/bold]\n")
+
+    table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+    table.add_column("Model", style="cyan")
+    table.add_column("Before", justify="right")
+    table.add_column("After", justify="right")
+    table.add_column("Change", justify="right")
+
+    for m in models:
+        if m.status == "unchanged" and not include_unchanged:
+            continue
+
+        before = f"${m.before_cost:.3f}" if m.before_cost is not None else "--"
+        after = f"${m.after_cost:.3f}" if m.after_cost is not None else "--"
+
+        if m.error:
+            change_str = "[red]ERROR[/red]"
+        elif m.status == "unchanged":
+            change_str = "[dim]no change[/dim]"
+        elif m.status == "added":
+            change_str = f"[green]+ new (+${m.after_cost:.3f})[/green]"
+        elif m.status == "removed":
+            change_str = f"[yellow]- removed (-${m.before_cost:.3f})[/yellow]"
+        else:
+            sign = "+" if m.cost_delta >= 0 else ""
+            pct = f" ({sign}{m.pct_change:.0f}%)" if m.pct_change is not None else ""
+            color = "red" if m.cost_delta > 0 else "green"
+            change_str = f"[{color}]{sign}${m.cost_delta:.3f}{pct}[/{color}]"
+
+        table.add_row(m.name, before, after, change_str)
+
+    console.print(table)
+
+    sign = "+" if result.total_delta >= 0 else ""
+    console.print(
+        f"\n  [bold]Total:[/bold] ${result.total_before:.2f} -> ${result.total_after:.2f} "
+        f"({sign}${result.total_delta:.2f})"
+    )
+
+    parts: list[str] = []
+    if result.changed_count:
+        parts.append(f"{result.changed_count} changed")
+    if result.added_count:
+        parts.append(f"{result.added_count} added")
+    if result.removed_count:
+        parts.append(f"{result.removed_count} removed")
+    if result.error_count:
+        parts.append(f"[red]{result.error_count} errors[/red]")
+    if parts:
+        console.print(f"  {', '.join(parts)}")
     console.print()
 
 

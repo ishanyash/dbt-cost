@@ -1,0 +1,89 @@
+# dbt-cost PR Comment Workflow
+# Copy this file to your dbt project's .github/workflows/ directory.
+#
+# Prerequisites:
+#   - BigQuery credentials stored as a GitHub secret (GCP_SA_KEY)
+#   - dbt project configured with a `ci` target in profiles.yml
+#
+# What it does:
+#   1. Compiles dbt on both the base and PR branches
+#   2. Runs `dbt-cost diff` to compare costs
+#   3. Posts a sticky PR comment with the cost impact
+#   4. Fails the check if cost increase exceeds the threshold
+
+name: dbt Cost Check
+
+on:
+  pull_request:
+    paths:
+      - 'models/**'
+      - 'macros/**'
+      - 'dbt_project.yml'
+
+env:
+  # Adjust threshold to your team's comfort level (USD)
+  COST_THRESHOLD: "50.00"
+
+jobs:
+  cost-diff:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install dbt-bigquery dbt-cost
+
+      - name: Authenticate to GCP
+        run: |
+          echo '${{ secrets.GCP_SA_KEY }}' > /tmp/gcp-key.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> $GITHUB_ENV
+
+      - name: Compile base branch
+        run: |
+          git checkout ${{ github.event.pull_request.base.sha }}
+          dbt compile --target ci
+          cp target/manifest.json /tmp/base_manifest.json
+
+      - name: Compile PR branch
+        run: |
+          git checkout ${{ github.event.pull_request.head.sha }}
+          dbt compile --target ci
+          cp target/manifest.json /tmp/pr_manifest.json
+
+      - name: Run dbt-cost diff
+        id: cost_diff
+        run: |
+          OUTPUT=$(dbt-cost --format markdown diff \
+            --base-manifest /tmp/base_manifest.json \
+            --pr-manifest /tmp/pr_manifest.json \
+            --credentials /tmp/gcp-key.json)
+          echo "comment<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: ${{ steps.cost_diff.outputs.comment }}
+
+      - name: Check cost threshold
+        run: |
+          dbt-cost --format json diff \
+            --base-manifest /tmp/base_manifest.json \
+            --pr-manifest /tmp/pr_manifest.json \
+            --credentials /tmp/gcp-key.json \
+            --threshold ${{ env.COST_THRESHOLD }}
+
+      - name: Cleanup credentials
+        if: always()
+        run: rm -f /tmp/gcp-key.json
